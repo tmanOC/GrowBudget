@@ -1,0 +1,9 @@
+db.sqlite3
+*.sqlite3
+.idea/workspace.xml
+venv
+__pycache__/
+*.py[cod]
+env.py
+.DS_Store
+honeymoney/static/

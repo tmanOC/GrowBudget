@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Grow Budget</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/accounts/mystyle.css" />
+    <style>
+        form ul{
+            list-style:none;
+            padding-left:0px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-light bg-light">
+
+      <span class="navbar-brand mb-0 h1">Grow Budget</span>
+        {% if user.is_authenticated %}
+          <a href="{% url 'accounts:full-detail' %}">Dashboard</a>
+          <a href="{% url 'accounts:accounts' %}">Accounts</a>
+          <a href="{% url 'accounts:transactions' %}">Transactions</a>
+        {% else %}
+        {% endif %}
+            <div></div>
+        {% if user.is_authenticated %}
+            <a href="{% url 'logout' %}">Logout</a>
+        {% else %}
+            <a href="{% url 'login' %}" >Log In</a>
+        {% endif %}
+    </nav>
+
+    <div class="container">
+        {% block content %}
+        {% endblock %}
+    </div>
+</body>
+</html>
