@@ -1,0 +1,4 @@
+Django==2.1
+django-cryptography==1.0.0
+selenium==3.141.0
+django-cron==0.5.1

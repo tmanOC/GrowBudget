@@ -1,0 +1,38 @@
+{% extends 'accounts/layout.html' %}
+{% block content %}
+{% if user.is_authenticated %}
+  {% if object_list %}
+    <table>
+      <tr>
+          <th>Name</th>
+          <th>Balance</th>
+          <th>Credential</th>
+          <th>Limit</th>
+          <th>True Balance</th>
+          <th>Last Updated</th>
+          <th>Account Type</th>
+      </tr>
+      <!--Loop through transaction list-->
+      {% for object in object_list %}
+      <tr>
+        <td><a href="{% url 'accounts:account-update' object.id %}">{{ object.name }}</a></td>
+          <td>{{ object.balance }}</td>
+          <td>{{ object.credential }}</td>
+          <td>{{ object.limit }}</td>
+          <td>{{ object.true_balance }}</td>
+          <td>{{ object.last_updated }}</td>
+          <td>{{ object.account_type }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p>No accounts are available.</p>
+  {% endif %}
+  <p><a href="{% url 'accounts:account-create' %}">Create new</a></p>
+  <p><a href="{% url 'logout' %}">logout</a></p>
+{% else %}
+  <p>You are not logged in</p>
+  <a href="{% url 'login' %}">login</a> |
+  <a href="{% url 'signup' %}">signup</a>
+{% endif %}
+{% endblock %}

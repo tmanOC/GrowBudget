@@ -1,0 +1,24 @@
+{% extends 'accounts/layout.html' %}
+{% block content %}
+{% if user.is_authenticated %}
+  Hi {{ user.username }}!
+  {% if user.is_staff %}
+  <a href="{% url 'accounts:refresh' %}">Refresh All Accounts</a>
+  {% endif %}
+{% if accounts_list %}
+    <ul>
+    {% for account in accounts_list %}
+        <li><a href="{% url 'accounts:detail' account.id %}">{{ account.name }}</a></li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>No accounts are available.</p>
+{% endif %}
+
+  <p><a href="{% url 'logout' %}">logout</a></p>
+{% else %}
+  <p>You are not logged in</p>
+  <a href="{% url 'login' %}">login</a> |
+  <a href="{% url 'signup' %}">signup</a>
+{% endif %}
+{% endblock %}

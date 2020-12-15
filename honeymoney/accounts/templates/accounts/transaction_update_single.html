@@ -1,0 +1,18 @@
+{% extends 'accounts/layout.html' %}
+{% block content %}
+{% if user.is_authenticated %}
+<!-- There needs to be a form here. Super simple, just for one value.
+    The transaction name and date comes from the existing transaction.
+    The number is used to find the month that needs to change
+-->
+<form method="post">{% csrf_token %}
+                <input type="hidden" id="transactionName" name="transactionName" value="{{ transaction_name }}">
+                <input type="hidden" id="dateIndex" name="dateIndex" value="{{ date_index }}">
+                <input type="number" id="value" name="value" step="0.01">
+                <input type="submit" value="save"></form>
+{% else %}
+  <p>You are not logged in</p>
+  <a href="{% url 'login' %}">login</a> |
+  <a href="{% url 'signup' %}">signup</a>
+{% endif %}
+{% endblock %}
