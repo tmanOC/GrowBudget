@@ -209,6 +209,121 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
         return context
 
 
+class TransactionalDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'accounts/detail.html'
+
+    def post(self, request):
+        transaction_name = request.POST['transactionName']
+        if not transaction_name:
+            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+        query = (Q(name=transaction_name) | Q(item__name=transaction_name))
+        changes = Transaction.objects.filter(query)
+        this_day = datetime.date.today()
+
+        for c in changes:
+            if not c.in_month(this_day):
+                continue
+            if c.recurring:
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            day_next_month = month_after_this_date(this_day, this_day.day)
+            if c.in_month(day_next_month):
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            c.delete()
+
+        return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        year = 0
+        if 'year' in self.request.GET:
+            year = int(self.request.GET['year'])
+        
+        context['account'] = {'name': 'All Accounts'}
+        user = self.request.user
+
+
+        accounts = Account.objects.filter(user=user, account_group='transactional') if user.is_authenticated else []
+
+        account_query = Q()
+        total_balance = 0
+        context['accounts'] = []
+        for ac in accounts:
+            context['accounts'].append(ac)
+            account_query = account_query | (Q(account_from=ac) & Q(account_to=None))
+            # account_to is not one of the transactional accounts
+            account_query = account_query | (Q(account_from=ac) & ~Q(account_to__in=accounts))
+            # account_from is not one of the transactional accounts
+            account_query = account_query | (~Q(account_from__in=accounts) & Q(account_to=ac))
+            total_balance = total_balance + ac.balance
+
+        if len(context['accounts']) == 0:
+            changes = Transaction.objects.none()
+        else:
+            changes = Transaction.objects.annotate(
+                month_from_day=Extract('month_from', 'day')
+            ).filter(account_query).order_by('month_from_day')
+        
+        dates = months_days_from_day(datetime.date.today(),(year+1)*12)
+        context['months'] = month_strings_from_dates(dates[-12:])
+        context['year_strings'] = year_strings_from_dates(dates[-12:])
+        
+        change_objects = []
+        viewing_change_objects = []
+        for c in changes:
+            if c.item:
+                name = c.item.name
+            else:
+                name = c.name
+
+            possible_element = {'name': name, 'values': c.values_for_dates(dates, True), 'range': range(len(dates))}
+            add_in_change_object(possible_element, change_objects)
+            add_in_change_object(copy.deepcopy(possible_element), viewing_change_objects)
+
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+
+        context['transaction_list'] = viewing_change_objects
+        
+        balance_objects = []
+        for c in change_objects:
+            balance_objects.append({'name': c['name'], 'balances': []})
+
+        error_messages = []
+        balances = [total_balance]
+
+        if 'threshold' in self.request.GET:
+            threshold_balance = self.request.GET['threshold']
+            threshold_balance = decimal.Decimal(threshold_balance)
+        else:
+            threshold_balance = 0
+
+        if len(context['accounts']) == 0 or len(change_objects) == 0:
+            context['balances'] = balances
+            context['balance_list'] = balance_objects
+            context['error_messages'] = error_messages
+            return context
+
+        for i in range((year+1)*12):
+            (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i], min_balance=threshold_balance)
+            error_messages = error_messages + errors
+            for j in range(len(array_balances)):
+                balance_objects[j]['balances'].append(array_balances[j])
+            balances.append(array_balances[len(array_balances) - 1])
+
+
+        context['balances'] = balances[-13:-1]
+        for balance_object in balance_objects:
+            balance_object['balances'] = balance_object['balances'][-12:]
+        context['balance_list'] = balance_objects
+        context['error_messages'] = error_messages
+        return context
+
+
 class FullDetailView(LoginRequiredMixin, TemplateView):
     template_name = 'accounts/detail.html'
 
@@ -469,7 +584,7 @@ class AccountForm(forms.ModelForm):
 
     class Meta:
         model = Account
-        fields = ['name', 'credential', 'balance', 'limit', 'account_type']
+        fields = ['name', 'credential', 'balance', 'limit', 'account_type', 'account_group']
 
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user')

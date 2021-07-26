@@ -27,11 +27,17 @@ class Account(models.Model):
     limit = models.DecimalField(max_digits=50, decimal_places=2, null=True)
     true_balance = models.DecimalField(max_digits=50, decimal_places=2, default=0)
     last_updated = models.DateTimeField(default=datetime.datetime(1, 1, 1))
+    ACCOUNT_GROUPS = (
+        ('transactional', 'transactional'),
+        ('saving', 'saving'),
+    )
+
     ACCOUNT_TYPES = (
         ('cheque', 'cheque'),
         ('credit', 'credit'),
     )
     account_type = models.CharField(choices=ACCOUNT_TYPES, max_length=50, blank=True)
+    account_group = models.CharField(choices=ACCOUNT_GROUPS, max_length=50, blank=True)
     objects = models.Manager()
 
     def __unicode__(self):
