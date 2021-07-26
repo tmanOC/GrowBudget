@@ -7,3 +7,4 @@ __pycache__/
 env.py
 .DS_Store
 honeymoney/static/
+env/

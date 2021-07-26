@@ -131,11 +131,14 @@ class Transaction(models.Model):
 
         if date.year < self.month_from.year:
             return False
-        if date.year > self.month_to.year:
+        month_to=self.month_to
+        if self.month_to is None:
+            month_to = self.month_from
+        if date.year > month_to.year:
             return False
         if date.year == self.month_from.year and date.month < self.month_from.month:
             return False
-        if date.year == self.month_to.year and date.month > self.month_to.month:
+        if date.year == month_to.year and date.month > month_to.month:
             return False
         return True
 

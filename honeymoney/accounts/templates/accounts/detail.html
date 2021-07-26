@@ -31,6 +31,13 @@ table{ margin-bottom: 10px; }
     <tr>
         <th></th>
         <th></th>
+        {% for year_string in year_strings %}
+        <th>{{ year_string }}</th>
+        {% endfor %}
+    </tr>
+    <tr>
+        <th></th>
+        <th></th>
         {% for month in months %}
         <th>{{ month }}</th>
         {% endfor %}
@@ -56,7 +63,7 @@ table{ margin-bottom: 10px; }
         {% for i in t.range %}
         <td>
             <!-- how can I see at this point what the month is? -->
-            <a href="{% url 'accounts:update-single' %}?exact={{ t.name }}&date-index={{ i }}">{{ t.values|index:i }}</a>
+            <a href="{% url 'accounts:update-single' %}?exact={{ t.name }}&date-index={{ i }}">{{ t.values|index:forloop.counter0 }}</a>
 
         </td>
         {% endfor %}
@@ -67,6 +74,12 @@ table{ margin-bottom: 10px; }
 <div>{{ message }}</div>
 {% endfor %}
 <table style="width:100%">
+    <tr>
+        <th></th>
+        {% for year_string in year_strings %}
+        <th>{{ year_string }}</th>
+        {% endfor %}
+    </tr>
     <tr>
         <th></th>
         {% for month in months %}

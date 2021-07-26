@@ -19,7 +19,7 @@ from django.views.generic.edit import BaseCreateView
 
 import datetime
 import decimal
-
+import copy
 
 def refresh_accounts(request):
     if not request.user.is_authenticated:
@@ -31,10 +31,10 @@ def refresh_accounts(request):
     return HttpResponseRedirect(reverse('accounts:index'))
 
 
-def months_days_from_day(today):
+def months_days_from_day(today, months=12):
     dates = []
     y = today.year
-    for x in range(12):
+    for x in range(months):
         m = (today.month + x - 1) % 12 + 1
         if m == 1 and x != 0:
             y += 1
@@ -46,12 +46,15 @@ def months_days_from_day(today):
 def month_strings_from_dates(dates):
     return list(map(lambda x: x.strftime('%b'), dates))
 
+def year_strings_from_dates(dates):
+    return list(map(lambda x: x.strftime('%Y'), dates))
+
 
 def balances_for(month, change_objects, balance_start, min_balance=0):
     balance = balance_start
     balances = []
     error_messages = []
-    for j in range(len(change_objects)):  # the range of change_objects
+    for j in range(len(change_objects)):
         balance += decimal.Decimal(change_objects[j]['values'][month])
         balances.append(balance)
         if balance < min_balance:
@@ -60,15 +63,12 @@ def balances_for(month, change_objects, balance_start, min_balance=0):
 
 
 class IndexView(generic.ListView, LoginRequiredMixin):
-    # model = get_user_model()
     template_name = 'accounts/index.html'
     context_object_name = 'accounts_list'
 
     def get_queryset(self):
         """Return the accounts for this user's credentials"""
         user = self.request.user
-        print(user.id)
-        print(user.username)
         credentials = Credential.objects.filter(user=self.request.user)
         account_query = Q()
 
@@ -88,22 +88,18 @@ class DetailView(generic.DetailView, LoginRequiredMixin):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        # Add in two lists of changes
-        # Let's make an array of months for the top row of the table
         dates = months_days_from_day(datetime.date.today())
         context['months'] = month_strings_from_dates(dates)
-        # Next fetch all changes/transactions related to this account
+        
         account = context['object']
         changes = account.get_related_transactions()
 
-        # Setup simple change objects
         change_objects = []
         for c in changes:
             change_objects.append({'name': c.name, 'values': c.values_for_dates(dates, c.account_from_id == account.id)})
 
         context['transaction_list'] = change_objects
 
-        # balances, balance list and error messages
         balance_objects = []
         for c in change_objects:
             balance_objects.append({'name': c['name'], 'balances': []})
@@ -111,10 +107,10 @@ class DetailView(generic.DetailView, LoginRequiredMixin):
         error_messages = []
         balances = [account.balance]
 
-        for i in range(12):  # the range of months
+        for i in range(12):
             (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i])
             error_messages = error_messages + errors
-            for j in range(len(array_balances)):  # the range of change_objects
+            for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
             balances.append(array_balances[len(array_balances) - 1])
 
@@ -164,15 +160,12 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        # Add in two lists of changes
-        # Let's make an array of months for the top row of the table
         dates = months_days_from_day(datetime.date.today())
         context['months'] = month_strings_from_dates(dates)
-        # Next fetch all changes/transactions related to this account
+
         account = context['object']
         changes = account.get_related_transactions()
 
-        # Setup simple change objects
         change_objects = []
         for c in changes:
             if c.item:
@@ -180,13 +173,11 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
             else:
                 name = c.name
 
-            possible_element = {'name': name, 'values': c.values_for_dates(dates, c.account_from_id == account.id)}
+            possible_element = {'name': name, 'values': c.values_for_dates(dates, c.account_from_id == account.id), 'range': range(len(dates))}
 
             add_in_change_object(possible_element, change_objects)
 
         context['transaction_list'] = change_objects
-
-        # balances, balance list and error messages
         balance_objects = []
         for c in change_objects:
             balance_objects.append({'name': c['name'], 'balances': []})
@@ -194,14 +185,14 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
         error_messages = []
         balances = [account.balance]
 
-        for i in range(12):  # the range of months
+        for i in range(12):
             (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i])
             error_messages = error_messages + errors
-            for j in range(len(array_balances)):  # the range of change_objects
+            for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
             balances.append(array_balances[len(array_balances) - 1])
 
-        context['balances'] = balances
+        context['balances'] = balances[0:-1]
         context['balance_list'] = balance_objects
         context['error_messages'] = error_messages
         return context
@@ -236,6 +227,10 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        year=0
+        if 'year' in self.request.GET:
+            year=int(self.request.GET['year'])
+        
         context['account'] = {'name': 'All Accounts'}
         user = self.request.user
 
@@ -255,13 +250,13 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
             changes = Transaction.objects.annotate(
                 month_from_day=Extract('month_from', 'day')
             ).filter(account_query).order_by('month_from_day')
-        # Add in two lists of changes
-        # Let's make an array of months for the top row of the table
-        dates = months_days_from_day(datetime.date.today())
-        context['months'] = month_strings_from_dates(dates)
-
-        # Setup simple change objects
+        
+        dates = months_days_from_day(datetime.date.today(),(year+1)*12)
+        context['months'] = month_strings_from_dates(dates[-12:])
+        context['year_strings'] = year_strings_from_dates(dates[-12:])
+        
         change_objects = []
+        viewing_change_objects = []
         for c in changes:
             if c.item:
                 name = c.item.name
@@ -270,9 +265,14 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
 
             possible_element = {'name': name, 'values': c.values_for_dates(dates, True), 'range': range(len(dates))}
             add_in_change_object(possible_element, change_objects)
+            add_in_change_object(copy.deepcopy(possible_element), viewing_change_objects)
 
-        context['transaction_list'] = change_objects
-        # balances, balance list and error messages
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+
+        context['transaction_list'] = viewing_change_objects
+        
         balance_objects = []
         for c in change_objects:
             balance_objects.append({'name': c['name'], 'balances': []})
@@ -292,15 +292,17 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
             context['error_messages'] = error_messages
             return context
 
-        for i in range(12):  # the range of months
+        for i in range((year+1)*12):
             (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i], min_balance=threshold_balance)
             error_messages = error_messages + errors
-            for j in range(len(array_balances)):  # the range of change_objects
+            for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
             balances.append(array_balances[len(array_balances) - 1])
 
 
-        context['balances'] = balances[0:-1]
+        context['balances'] = balances[-13:-1]
+        for balance_object in balance_objects:
+            balance_object['balances'] = balance_object['balances'][-12:]
         context['balance_list'] = balance_objects
         context['error_messages'] = error_messages
         return context
@@ -321,8 +323,6 @@ class CredentialForm(forms.ModelForm):
     def clean(self):
         super(CredentialForm, self).clean()
 
-
-# Credentials views
 class CredentialCreate(CreateView, LoginRequiredMixin):
     model = Credential
     form_class = CredentialForm
@@ -336,11 +336,8 @@ class CredentialCreate(CreateView, LoginRequiredMixin):
 
 
 class CredentialsView(generic.ListView, LoginRequiredMixin):
-    # model = get_user_model()
     template_name = 'accounts/credential_index.html'
-    # context_object_name = 'accounts_list'
-
-    # bank and active
+    
     def get_queryset(self):
         """Return the current user's credentials"""
         return Credential.objects.filter(user=self.request.user)
@@ -367,16 +364,10 @@ class CredentialDelete(DeleteView, LoginRequiredMixin):
 
 
 class TransactionsView(generic.ListView, LoginRequiredMixin):
-    # model = get_user_model()
     template_name = 'accounts/transaction_index.html'
-    # context_object_name = 'accounts_list'
-
-    # bank and active
+    
     def get_queryset(self):
         """Return the current user's credentials"""
-        print(self.request.GET)
-
-
         if 'exact' in self.request.GET:
             exact_query = Q(account_from__credential__user=self.request.user, name=self.request.GET['exact']) | Q(
                 account_from__user=self.request.user, name=self.request.GET['exact'])
@@ -395,9 +386,6 @@ class TransactionsView(generic.ListView, LoginRequiredMixin):
 
 
 class TransactionForm(forms.ModelForm):
-    # pin = forms.CharField(required=False)
-    # password = forms.CharField(widget=widgets.PasswordInput())
-
     class Meta:
         model = Transaction
         fields = ['name', 'value', 'account_from', 'account_to', 'month_from', 'month_to', 'recurring']
@@ -416,8 +404,6 @@ class TransactionForm(forms.ModelForm):
     def clean(self):
         super(TransactionForm, self).clean()
 
-
-# Credentials views
 class TransactionCreate(CreateView, LoginRequiredMixin):
     model = Transaction
     form_class = TransactionForm
@@ -457,14 +443,10 @@ class TransactionDelete(DeleteView, LoginRequiredMixin):
 
 
 class AccountsView(generic.ListView, LoginRequiredMixin):
-    # model = get_user_model()
     template_name = 'accounts/account_index.html'
-    # context_object_name = 'accounts_list'
-
-    # bank and active
+    
     def get_queryset(self):
         """Return the current user's accounts"""
-        print(self.request.GET)
         return Account.objects.filter(user=self.request.user).order_by('name')
 
     def get_context_data(self, **kwargs):
@@ -473,8 +455,6 @@ class AccountsView(generic.ListView, LoginRequiredMixin):
 
 
 class AccountForm(forms.ModelForm):
-    # pin = forms.CharField(required=False)
-    # password = forms.CharField(widget=widgets.PasswordInput())
 
     class Meta:
         model = Account
@@ -488,8 +468,6 @@ class AccountForm(forms.ModelForm):
     def clean(self):
         super(AccountForm, self).clean()
 
-
-# Credentials views
 class AccountCreate(CreateView, LoginRequiredMixin):
     model = Account
     form_class = AccountForm
