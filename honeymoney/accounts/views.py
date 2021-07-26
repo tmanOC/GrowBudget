@@ -159,14 +159,18 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        dates = months_days_from_day(datetime.date.today())
-        context['months'] = month_strings_from_dates(dates)
-
+        year = 0
+        if 'year' in self.request.GET:
+            year = int(self.request.GET['year'])
+        dates = months_days_from_day(datetime.date.today(),(year+1)*12)
+        context['months'] = month_strings_from_dates(dates[-12:])
+        context['year_strings'] = year_strings_from_dates(dates[-12:])
+        
         account = context['object']
         changes = account.get_related_transactions()
 
         change_objects = []
+        viewing_change_objects = []
         for c in changes:
             if c.item:
                 name = c.item.name
@@ -174,10 +178,15 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
                 name = c.name
 
             possible_element = {'name': name, 'values': c.values_for_dates(dates, c.account_from_id == account.id), 'range': range(len(dates))}
-
             add_in_change_object(possible_element, change_objects)
+            add_in_change_object(copy.deepcopy(possible_element), viewing_change_objects)
 
-        context['transaction_list'] = change_objects
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+
+        context['transaction_list'] = viewing_change_objects
+
         balance_objects = []
         for c in change_objects:
             balance_objects.append({'name': c['name'], 'balances': []})
@@ -185,14 +194,16 @@ class NewDetailView(generic.DetailView, LoginRequiredMixin):
         error_messages = []
         balances = [account.balance]
 
-        for i in range(12):
+        for i in range((year+1)*12):
             (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i])
             error_messages = error_messages + errors
             for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
             balances.append(array_balances[len(array_balances) - 1])
 
-        context['balances'] = balances[0:-1]
+        context['balances'] = balances[-13:-1]
+        for balance_object in balance_objects:
+            balance_object['balances'] = balance_object['balances'][-12:]
         context['balance_list'] = balance_objects
         context['error_messages'] = error_messages
         return context
@@ -227,9 +238,9 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        year=0
+        year = 0
         if 'year' in self.request.GET:
-            year=int(self.request.GET['year'])
+            year = int(self.request.GET['year'])
         
         context['account'] = {'name': 'All Accounts'}
         user = self.request.user
