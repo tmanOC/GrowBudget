@@ -514,7 +514,7 @@ class TransactionsView(generic.ListView, LoginRequiredMixin):
 class TransactionForm(forms.ModelForm):
     class Meta:
         model = Transaction
-        fields = ['name', 'value', 'account_from', 'account_to', 'month_from', 'month_to', 'recurring']
+        fields = ['name', 'value', 'account_from', 'account_to', 'month_from', 'month_to', 'recurring', 'increase_multiplier', 'increase_month_interval', 'increase_first_interval', 'increase_start_date']
 
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user')

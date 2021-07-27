@@ -48,10 +48,9 @@ class TransactionUpdateSingle(TemplateView, LoginRequiredMixin):
         if month_index == 0:
             for c in changes:
                 move_change_by_month(c ,this_day)
-
             return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
 
-        month_to_change = months_days_from_day(this_day)[month_index]
+        month_to_change = months_days_from_day(this_day, month_index + 1)[month_index]
         new_transactions = []
         for c in changes:
             if not c.in_month(month_to_change):

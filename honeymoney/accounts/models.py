@@ -7,7 +7,7 @@ from django.db.models.functions import Extract
 
 import decimal
 import datetime
-
+import math
 
 class Credential(models.Model):
     user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
@@ -120,6 +120,12 @@ class Transaction(models.Model):
     month_to = models.DateField(default=datetime.date.today, null=True, blank=True)
     objects = models.Manager()
 
+    # transaction where its value increases by a certain percentage every certain number of months
+    increase_multiplier = models.DecimalField(max_digits=9, decimal_places=3, default=1)
+    increase_month_interval = models.IntegerField(default=1)
+    increase_first_interval = models.IntegerField(default=0)
+    increase_start_date = models.DateField(default=None, null=True, blank=True)
+
     def __unicode__(self):
         return self.name + ' ' + str(self.value)
 
@@ -150,12 +156,31 @@ class Transaction(models.Model):
 
     def values_for_dates(self, dates, for_from=False):
         def value_for_date(date):
+            date_value = decimal.Decimal(0.0)
             if not self.in_month(date):
                 return decimal.Decimal(0.0)
-            elif for_from and self.account_to:
-                return -self.value
+            
+            if for_from and self.account_to:
+                date_value = -self.value
             else:
-                return self.value
+                date_value = self.value
+            
+            if self.increase_start_date is None:
+                return date_value
+            
+            month_difference = ((date.year - self.increase_start_date.year) * 12) + date.month - self.increase_start_date.month
+            if month_difference <= 0:
+                return date_value
+            x = 0
+            if self.increase_first_interval <= 0:
+                x = math.floor(month_difference / self.increase_month_interval)
+            elif self.increase_first_interval > 0:
+                x = math.floor((month_difference + (self.increase_month_interval - self.increase_first_interval)) / self.increase_month_interval)
+                print(x)
+            if x < 0:
+                x = 0
+            # multiply date_value by the correct number of multipliers for where it is in the range from the first date
+            return round(date_value * decimal.Decimal(math.pow(self.increase_multiplier, x)), 2)
 
         value_list = list(map(value_for_date, dates))
         return value_list
@@ -168,9 +193,25 @@ class Transaction(models.Model):
 
     def create_simple_transaction(self, value, month_index):
         new_month = month_later_this_date(datetime.date.today(), self.month_from.day, month_index)
-        new_transaction = Transaction(account_from=self.account_from, account_to=self.account_to, name=self.name, value=value, recurring=False, month_from=new_month, month_to=new_month)
+        new_transaction = Transaction(account_from=self.account_from,
+                                      account_to=self.account_to,
+                                      name=self.name,
+                                      value=value,
+                                      recurring=False,
+                                      month_from=new_month,
+                                      month_to=new_month)
         return new_transaction
 
     def create_new_with_month_after_end(self, this_day):
-        new_transaction = Transaction(account_from=self.account_from,account_to=self.account_to, name=self.name, value=self.value, recurring=False, month_from=self.month_from, month_to=month_before_this_date(this_day, self.month_from.day))
+        new_transaction = Transaction(account_from=self.account_from,
+                                      account_to=self.account_to,
+                                      name=self.name,
+                                      value=self.value,
+                                      recurring=False,
+                                      month_from=self.month_from,
+                                      month_to=month_before_this_date(this_day, self.month_from.day),
+                                      increase_multiplier=self.increase_multiplier,
+                                      increase_month_interval=self.increase_month_interval,
+                                      increase_start_date=self.increase_start_date,
+                                      increase_first_interval=self.increase_first_interval)
         return new_transaction
