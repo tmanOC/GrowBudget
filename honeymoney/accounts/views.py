@@ -20,6 +20,7 @@ from django.views.generic.edit import BaseCreateView
 import datetime
 import decimal
 import copy
+import pprint
 
 def refresh_accounts(request):
     if not request.user.is_authenticated:
@@ -61,6 +62,62 @@ def balances_for(month, change_objects, balance_start, min_balance=0):
             error_messages.append('negative balance ' + str(balance) + ' at ' + change_objects[j]['name'] + ' ' + str(month))
     return balances, error_messages
 
+def balances_from_balances3d(month, balances3d):
+     # This is the 2d array of balances for that particular month
+    balances = []
+    for balances1d in balances3d[month][1:]:
+        balances.append(balances1d[-1])
+    
+    return (balances, [])
+
+def all_accounts_balances_for(month, change_objects, balances_start, accounts_objects, min_balance=0):
+    """Returns the balances after the changes to all the balances in balances_start."""
+    account_balances2d = [balances_start]
+
+    for obj_change in change_objects:
+        new_balances = account_balances2d[-1].copy()
+        try:
+            account_from_index = accounts_objects.index(obj_change['account_from'])
+    
+            # if the change object is interest, I need to figure out the value on the fly.
+            new_balances[account_from_index] += obj_change['values'][month]
+            if 'interest_rate' in obj_change and len(obj_change['values']) > month + 1:
+                interest_value = ((new_balances[account_from_index] - obj_change['account_from'].limit) * (obj_change['interest_rate']/100))/12
+                if obj_change['has_interest_below_zero'] and interest_value < decimal.Decimal(0):
+                    obj_change['values'][month + 1] = round(obj_change['values'][month + 1] * interest_value,2)
+                elif (not obj_change['has_interest_below_zero']) and interest_value > decimal.Decimal(0):
+                    obj_change['values'][month + 1] = round(obj_change['values'][month + 1] * interest_value,2)
+                else:
+                    obj_change['values'][month + 1] = 0
+        except ValueError:
+            if obj_change['account_to'] is not None:
+                print('hello')
+                try:
+                    account_to_index = accounts_objects.index(obj_change['account_to'])
+                    new_balances[account_to_index] -= obj_change['values'][month]
+                    new_balances[-1] -= obj_change['values'][month]
+                    account_balances2d.append(new_balances)
+                    print(new_balances)
+                    continue
+                except ValueError:
+                    account_balances2d.append(new_balances)
+                    continue
+            else:
+                account_balances2d.append(new_balances)
+                continue
+
+        if obj_change['account_to'] is not None:
+            try:
+                account_to_index = accounts_objects.index(obj_change['account_to'])
+                new_balances[account_to_index] -= obj_change['values'][month]
+            except ValueError:
+                new_balances[-1] += obj_change['values'][month]
+                pass
+        else:
+            new_balances[-1] += obj_change['values'][month]
+        account_balances2d.append(new_balances)
+    
+    return account_balances2d
 
 class IndexView(generic.ListView, LoginRequiredMixin):
     template_name = 'accounts/index.html'
@@ -123,6 +180,14 @@ class DetailView(generic.DetailView, LoginRequiredMixin):
 def add_in_change_object(new_object, old_objects):
     for current_change in old_objects:
         if current_change['name'] == new_object['name']:
+            current_change['values'] = [sum(pair) for pair in zip(current_change['values'], new_object['values'])]
+            return True
+    old_objects.append(new_object)
+    return False
+
+def add_in_change_object_with_accounts(new_object, old_objects):
+    for current_change in old_objects:
+        if current_change['name'] == new_object['name'] and current_change['account_from'] == new_object['account_from'] and current_change['account_to'] == new_object['account_to']:
             current_change['values'] = [sum(pair) for pair in zip(current_change['values'], new_object['values'])]
             return True
     old_objects.append(new_object)
@@ -251,6 +316,7 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
         account_query = Q()
         total_balance = 0
         context['accounts'] = []
+        account_start_balances = []
         for ac in accounts:
             context['accounts'].append(ac)
             account_query = account_query | (Q(account_from=ac) & Q(account_to=None))
@@ -259,7 +325,8 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
             # account_from is not one of the transactional accounts
             account_query = account_query | (~Q(account_from__in=accounts) & Q(account_to=ac))
             total_balance = total_balance + ac.balance
-
+            account_start_balances.append(ac.balance)
+        account_start_balances.append(total_balance)
         if len(context['accounts']) == 0:
             changes = Transaction.objects.none()
         else:
@@ -272,22 +339,46 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
         context['year_strings'] = year_strings_from_dates(dates[-12:])
         
         change_objects = []
-        viewing_change_objects = []
         for c in changes:
             if c.item:
                 name = c.item.name
             else:
                 name = c.name
+            possible_element = {'name': name,
+                                'values': c.natural_values_for_dates(dates),
+                                'range': range(len(dates)),
+                                'account_from': c.account_from,
+                                'account_to': c.account_to}
+            # make a new change object for every interest change
+            if c.interest_rate > 0:
+                # make new change object
+                change_values = c.natural_values_for_dates(dates)
+                
+                if change_values[0] == 1:
+                    change_values[0] = c.value
+                change_objects.append({'name': name,
+                                       'interest_rate': c.interest_rate,
+                                       'has_interest_below_zero': c.has_interest_below_zero,
+                                       'values': change_values,
+                                       'range': range(len(dates)),
+                                       'account_from': c.account_from,
+                                       'account_to': c.account_to})
+                
+            else:
+                add_in_change_object_with_accounts(possible_element, change_objects)
+                # add_in_change_object_with_accounts(copy.deepcopy(possible_element), viewing_change_objects)
+            
+        # This is fine, the problem is that interest change objects are not shown
+        
+        
+        accounts_objects = context['accounts']
 
-            possible_element = {'name': name, 'values': c.values_for_dates(dates, True), 'range': range(len(dates))}
-            add_in_change_object(possible_element, change_objects)
-            add_in_change_object(copy.deepcopy(possible_element), viewing_change_objects)
-
-        for myObj in viewing_change_objects:
-            myObj['values'] = myObj['values'][-12:]
-            myObj['range'] = range(len(dates)-12, len(dates))
-
-        context['transaction_list'] = viewing_change_objects
+        # change_objects
+        account_balances3d = []
+        for i in range((year+1)*12):
+            account_balances2d = all_accounts_balances_for(i, change_objects, account_start_balances, accounts_objects, min_balance=0)
+            account_start_balances = account_balances2d[-1]
+            account_balances3d.append(account_balances2d)
         
         balance_objects = []
         for c in change_objects:
@@ -309,7 +400,7 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
             return context
 
         for i in range((year+1)*12):
-            (array_balances, errors) = balances_for(month=i, change_objects=change_objects, balance_start=balances[i], min_balance=threshold_balance)
+            (array_balances, errors) = balances_from_balances3d(i, account_balances3d)
             error_messages = error_messages + errors
             for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
@@ -321,6 +412,322 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
             balance_object['balances'] = balance_object['balances'][-12:]
         context['balance_list'] = balance_objects
         context['error_messages'] = error_messages
+
+        viewing_change_objects = copy.deepcopy(change_objects)
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+        context['transaction_list'] = viewing_change_objects
+
+        return context
+
+
+class IndividualAccountDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'accounts/detail.html'
+
+    def post(self, request, pk):
+        transaction_name = request.POST['transactionName']
+        if not transaction_name:
+            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+        query = (Q(name=transaction_name) | Q(item__name=transaction_name))
+        changes = Transaction.objects.filter(query)
+        this_day = datetime.date.today()
+
+        for c in changes:
+            if not c.in_month(this_day):
+                continue
+            if c.recurring:
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            day_next_month = month_after_this_date(this_day, this_day.day)
+            if c.in_month(day_next_month):
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            c.delete()
+
+        return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+
+    def get_context_data(self, **kwargs):
+        # how do I get account here again?
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        account = Account.objects.get(user=user, pk=context['pk']) if user.is_authenticated else None
+        year = 0
+        if 'year' in self.request.GET:
+            year = int(self.request.GET['year'])
+        
+        context['account'] = {'name': account.name}
+        
+        accounts = [account]
+
+        account_query = Q()
+        total_balance = 0
+        context['accounts'] = []
+        account_start_balances = []
+        for ac in accounts:
+            context['accounts'].append(ac)
+            total_balance = total_balance + ac.balance
+            account_start_balances.append(ac.balance)
+            account_query = account_query | (Q(account_from=ac) & Q(account_to=None))
+            # account_to is not one of the transactional accounts
+            account_query = account_query | (Q(account_from=ac) & ~Q(account_to__in=accounts))
+            # account_from is not one of the transactional accounts
+            account_query = account_query | (~Q(account_from__in=accounts) & Q(account_to=ac))
+        
+        account_start_balances.append(total_balance)
+
+        if len(context['accounts']) == 0:
+            changes = Transaction.objects.none()
+        else:
+            changes = Transaction.objects.annotate(
+                month_from_day=Extract('month_from', 'day')
+            ).filter(account_query).order_by('month_from_day')
+        
+        dates = months_days_from_day(datetime.date.today(),(year+1)*12)
+        context['months'] = month_strings_from_dates(dates[-12:])
+        context['year_strings'] = year_strings_from_dates(dates[-12:])
+        
+        # loop through all the months
+        # loop through all change objects
+        # for i in range((year+1)*12):
+        # keep track of all account balances with every object change as well as total
+        # build up output objects
+
+        change_objects = []
+        viewing_change_objects = []
+        for c in changes:
+            if c.item:
+                name = c.item.name
+            else:
+                name = c.name
+            possible_element = {'name': name,
+                                'values': c.natural_values_for_dates(dates),
+                                'range': range(len(dates)),
+                                'account_from': c.account_from,
+                                'account_to': c.account_to}
+            # make a new change object for every interest change
+            if c.interest_rate > 0:
+                # make new change object
+                change_values = c.natural_values_for_dates(dates)
+                
+                if change_values[0] == 1:
+                    change_values[0] = c.value
+                change_objects.append({'name': name,
+                                       'interest_rate': c.interest_rate,
+                                       'has_interest_below_zero': c.has_interest_below_zero,
+                                       'values': change_values,
+                                       'range': range(len(dates)),
+                                       'account_from': c.account_from,
+                                       'account_to': c.account_to})
+                
+            else:
+                add_in_change_object_with_accounts(possible_element, change_objects)
+                # add_in_change_object_with_accounts(copy.deepcopy(possible_element), viewing_change_objects)
+            
+        # This is fine, the problem is that interest change objects are not shown
+        
+        
+        accounts_objects = context['accounts']
+
+        # change_objects
+        account_balances3d = []
+        for i in range((year+1)*12):
+            account_balances2d = all_accounts_balances_for(i, change_objects, account_start_balances, accounts_objects, min_balance=0)
+            account_start_balances = account_balances2d[-1]
+            account_balances3d.append(account_balances2d)
+
+
+        balance_objects = []
+        for c in change_objects:
+            balance_objects.append({'name': c['name'], 'balances': []})
+
+        error_messages = []
+        balances = [total_balance]
+
+        if 'threshold' in self.request.GET:
+            threshold_balance = self.request.GET['threshold']
+            threshold_balance = decimal.Decimal(threshold_balance)
+        else:
+            threshold_balance = 0
+
+        if len(context['accounts']) == 0 or len(change_objects) == 0:
+            context['balances'] = balances
+            context['balance_list'] = balance_objects
+            context['error_messages'] = error_messages
+            return context
+
+        # account_balances2d
+        for i in range((year+1)*12):
+            # account_balances3d[i]
+            (array_balances, errors) = balances_from_balances3d(i, account_balances3d)
+            error_messages = error_messages + errors
+            for j in range(len(array_balances)):
+                balance_objects[j]['balances'].append(array_balances[j])
+            balances.append(array_balances[len(array_balances) - 1])
+
+        context['balances'] = balances[-13:-1]
+        for balance_object in balance_objects:
+            balance_object['balances'] = balance_object['balances'][-12:]
+        context['balance_list'] = balance_objects
+        context['error_messages'] = error_messages
+
+        viewing_change_objects = copy.deepcopy(change_objects)
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+        context['transaction_list'] = viewing_change_objects
+        return context
+
+
+class FullAllBalanceDetailView(LoginRequiredMixin, TemplateView):
+    template_name = 'accounts/detail.html'
+
+    def post(self, request):
+        transaction_name = request.POST['transactionName']
+        if not transaction_name:
+            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+        query = (Q(name=transaction_name) | Q(item__name=transaction_name))
+        changes = Transaction.objects.filter(query)
+        this_day = datetime.date.today()
+
+        for c in changes:
+            if not c.in_month(this_day):
+                continue
+            if c.recurring:
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            day_next_month = month_after_this_date(this_day, this_day.day)
+            if c.in_month(day_next_month):
+                c.month_from = month_after_this_date(this_day, c.month_from.day)
+                c.save()
+                continue
+            c.delete()
+
+        return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        year = 0
+        if 'year' in self.request.GET:
+            year = int(self.request.GET['year'])
+        
+        context['account'] = {'name': 'All Accounts'}
+        user = self.request.user
+
+        accounts = Account.objects.filter(user=user) if user.is_authenticated else []
+
+        account_query = Q()
+        total_balance = 0
+        context['accounts'] = []
+        account_start_balances = []
+        for ac in accounts:
+            context['accounts'].append(ac)
+            total_balance = total_balance + ac.balance
+            account_start_balances.append(ac.balance)
+            account_query = account_query | (Q(account_from=ac))
+        
+        account_start_balances.append(total_balance)
+
+        if len(context['accounts']) == 0:
+            changes = Transaction.objects.none()
+        else:
+            changes = Transaction.objects.annotate(
+                month_from_day=Extract('month_from', 'day')
+            ).filter(account_query).order_by('month_from_day')
+        
+        dates = months_days_from_day(datetime.date.today(),(year+1)*12)
+        context['months'] = month_strings_from_dates(dates[-12:])
+        context['year_strings'] = year_strings_from_dates(dates[-12:])
+        
+        # loop through all the months
+        # loop through all change objects
+        # for i in range((year+1)*12):
+        # keep track of all account balances with every object change as well as total
+        # build up output objects
+
+        change_objects = []
+        viewing_change_objects = []
+        for c in changes:
+            if c.item:
+                name = c.item.name
+            else:
+                name = c.name
+            possible_element = {'name': name,
+                                'values': c.natural_values_for_dates(dates),
+                                'range': range(len(dates)),
+                                'account_from': c.account_from,
+                                'account_to': c.account_to}
+            # make a new change object for every interest change
+            if c.interest_rate > 0:
+                # make new change object
+                change_values = c.natural_values_for_dates(dates)
+                
+                if change_values[0] == 1:
+                    change_values[0] = c.value
+                change_objects.append({'name': name,
+                                       'interest_rate': c.interest_rate,
+                                       'has_interest_below_zero': c.has_interest_below_zero,
+                                       'values': change_values,
+                                       'range': range(len(dates)),
+                                       'account_from': c.account_from,
+                                       'account_to': c.account_to})
+                
+            else:
+                add_in_change_object_with_accounts(possible_element, change_objects)
+                # add_in_change_object_with_accounts(copy.deepcopy(possible_element), viewing_change_objects)
+            
+        # This is fine, the problem is that interest change objects are not shown
+        
+        
+        accounts_objects = context['accounts']
+
+        # change_objects
+        account_balances3d = []
+        for i in range((year+1)*12):
+            account_balances2d = all_accounts_balances_for(i, change_objects, account_start_balances, accounts_objects, min_balance=0)
+            account_start_balances = account_balances2d[-1]
+            account_balances3d.append(account_balances2d)
+
+        balance_objects = []
+        for c in change_objects:
+            balance_objects.append({'name': c['name'], 'balances': []})
+
+        error_messages = []
+        balances = [total_balance]
+
+        if 'threshold' in self.request.GET:
+            threshold_balance = self.request.GET['threshold']
+            threshold_balance = decimal.Decimal(threshold_balance)
+        else:
+            threshold_balance = 0
+
+        if len(context['accounts']) == 0 or len(change_objects) == 0:
+            context['balances'] = balances
+            context['balance_list'] = balance_objects
+            context['error_messages'] = error_messages
+            return context
+
+        for i in range((year+1)*12):
+            (array_balances, errors) = balances_from_balances3d(i, account_balances3d)
+            error_messages = error_messages + errors
+            for j in range(len(array_balances)):
+                balance_objects[j]['balances'].append(array_balances[j])
+            balances.append(array_balances[len(array_balances) - 1])
+
+        context['balances'] = balances[-13:-1]
+        for balance_object in balance_objects:
+            balance_object['balances'] = balance_object['balances'][-12:]
+        context['balance_list'] = balance_objects
+        context['error_messages'] = error_messages
+
+        viewing_change_objects = copy.deepcopy(change_objects)
+        for myObj in viewing_change_objects:
+            myObj['values'] = myObj['values'][-12:]
+            myObj['range'] = range(len(dates)-12, len(dates))
+        context['transaction_list'] = viewing_change_objects
         return context
 
 
@@ -424,13 +831,19 @@ class FullDetailView(LoginRequiredMixin, TemplateView):
             for j in range(len(array_balances)):
                 balance_objects[j]['balances'].append(array_balances[j])
             balances.append(array_balances[len(array_balances) - 1])
-
-
+        
         context['balances'] = balances[-13:-1]
         for balance_object in balance_objects:
             balance_object['balances'] = balance_object['balances'][-12:]
+        # A balance object looks like this, the balances are for one item:
+        """
+            {'balances': [Decimal('13061.82'),
+                          Decimal('47626.52')],
+                   'name': 'MTN Data Sims'}
+        """
         context['balance_list'] = balance_objects
         context['error_messages'] = error_messages
+
         return context
 
 
@@ -514,7 +927,12 @@ class TransactionsView(generic.ListView, LoginRequiredMixin):
 class TransactionForm(forms.ModelForm):
     class Meta:
         model = Transaction
-        fields = ['name', 'value', 'account_from', 'account_to', 'month_from', 'month_to', 'recurring', 'increase_multiplier', 'increase_month_interval', 'increase_first_interval', 'increase_start_date']
+        fields = ['name', 'value', 'account_from',
+                  'account_to', 'month_from', 'month_to',
+                  'recurring', 'increase_multiplier',
+                  'increase_month_interval', 'increase_first_interval',
+                  'increase_start_date', 'interest_rate',
+                  'has_interest_below_zero']
 
     def __init__(self, *args, **kwargs):
         self.user = kwargs.pop('user')

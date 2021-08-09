@@ -30,6 +30,7 @@ class Account(models.Model):
     ACCOUNT_GROUPS = (
         ('transactional', 'transactional'),
         ('saving', 'saving'),
+        ('debt', 'debt')
     )
 
     ACCOUNT_TYPES = (
@@ -125,7 +126,9 @@ class Transaction(models.Model):
     increase_month_interval = models.IntegerField(default=1)
     increase_first_interval = models.IntegerField(default=0)
     increase_start_date = models.DateField(default=None, null=True, blank=True)
-
+    # interest transaction
+    interest_rate = models.DecimalField(max_digits=9, decimal_places=3, default=0)
+    has_interest_below_zero = models.BooleanField(default=False)
     def __unicode__(self):
         return self.name + ' ' + str(self.value)
 
@@ -154,16 +157,17 @@ class Transaction(models.Model):
             return False
         return True
 
-    def values_for_dates(self, dates, for_from=False):
+    def natural_values_for_dates(self, dates):
         def value_for_date(date):
+            self_value = self.value
+            if self.interest_rate > 0:
+                self_value = decimal.Decimal(1.0)
+            
             date_value = decimal.Decimal(0.0)
             if not self.in_month(date):
                 return decimal.Decimal(0.0)
             
-            if for_from and self.account_to:
-                date_value = -self.value
-            else:
-                date_value = self.value
+            date_value = self_value
             
             if self.increase_start_date is None:
                 return date_value
@@ -176,7 +180,41 @@ class Transaction(models.Model):
                 x = math.floor(month_difference / self.increase_month_interval)
             elif self.increase_first_interval > 0:
                 x = math.floor((month_difference + (self.increase_month_interval - self.increase_first_interval)) / self.increase_month_interval)
-                print(x)
+            if x < 0:
+                x = 0
+            # multiply date_value by the correct number of multipliers for where it is in the range from the first date
+            return round(date_value * decimal.Decimal(math.pow(self.increase_multiplier, x)), 2)
+        
+        value_list = list(map(value_for_date, dates))
+        return value_list
+
+
+    def values_for_dates(self, dates, for_from=False):
+        def value_for_date(date):
+            self_value = self.value
+            if self.interest_rate > 0:
+                self_value = decimal.Decimal(1.0)
+
+            date_value = decimal.Decimal(0.0)
+            if not self.in_month(date):
+                return decimal.Decimal(0.0)
+            
+            if for_from and self.account_to:
+                date_value = -self_value
+            else:
+                date_value = self_value
+            
+            if self.increase_start_date is None:
+                return date_value
+            
+            month_difference = ((date.year - self.increase_start_date.year) * 12) + date.month - self.increase_start_date.month
+            if month_difference <= 0:
+                return date_value
+            x = 0
+            if self.increase_first_interval <= 0:
+                x = math.floor(month_difference / self.increase_month_interval)
+            elif self.increase_first_interval > 0:
+                x = math.floor((month_difference + (self.increase_month_interval - self.increase_first_interval)) / self.increase_month_interval)
             if x < 0:
                 x = 0
             # multiply date_value by the correct number of multipliers for where it is in the range from the first date

@@ -90,7 +90,6 @@ class Fetcher:
         self.balances = [check_balance, '']
 
 
-#obj = Fetcher()
-#obj.set_up_browser()
-#print(obj.balances)
+# obj = Fetcher()
+# obj.set_up_browser()
 

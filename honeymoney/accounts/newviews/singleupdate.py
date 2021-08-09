@@ -37,7 +37,6 @@ class TransactionUpdateSingle(TemplateView, LoginRequiredMixin):
             return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
         query = (Q(name=transaction_name) | Q(item__name=transaction_name))
         changes = list(Transaction.objects.filter(query))
-        print(changes)
         this_day = datetime.date.today()
         month_index = int(request.POST['dateIndex'])
         value = float(request.POST['value'])
