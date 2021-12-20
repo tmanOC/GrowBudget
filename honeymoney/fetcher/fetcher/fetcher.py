@@ -14,7 +14,7 @@ class Fetcher:
 
     def __init__(self):
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        # chrome_options.add_argument("--headless")
         chrome_options.add_argument("--window-size=1920x1080")
 
         self.browser = webdriver.Chrome(chrome_options=chrome_options, executable_path=r"/usr/local/bin/chromedriver")
@@ -31,13 +31,14 @@ class Fetcher:
 
     def nedbank_login_and_work(self, username, password, work):
         self.browser.get('https://secured.nedbank.co.za')
-        self.browser.find_element_by_id('username').send_keys(username)
+        time.sleep(5)
+        self.browser.find_element_by_xpath('//*[@id="username"]').send_keys(username)
         self.browser.find_element_by_id('password').send_keys(password)
         self.browser.find_element_by_id('log_in').click()
 
         try:
             WebDriverWait(self.browser, 40).until(
-                EC.presence_of_element_located((By.XPATH, '//*[@id="scroll-page"]/div[1]/div/app-landing/div[2]/div[2]/div/div/div/div[1]/app-accounts/div/app-account-widget[1]/div/div[2]/div/div/div[1]/div/div/div[3]/div[2]'))
+                EC.presence_of_element_located((By.XPATH, '//*[@id="scroll-page"]/div/div/div/app-landing/div[1]/div/div[2]/div/div/div/div[5]/app-accounts/div/app-account-widget[1]/div/div[2]/div[1]/div/div[1]/div/div/div[3]/div[2]'))
             )
 
             time.sleep(5)
@@ -55,7 +56,7 @@ class Fetcher:
             self.browser.find_element_by_name('Password').send_keys(password)
             self.browser.find_element_by_id('OBSubmit').click()
             WebDriverWait(self.browser, 40).until(
-                EC.presence_of_element_located((By.ID, "topTabs"))
+                EC.presence_of_element_located((By.ID, "newsLanding"))
             )
             time.sleep(5)
             work()
@@ -65,7 +66,8 @@ class Fetcher:
 
     def get_balances(self):
         # find and click the accounts button
-        clear_button = self.browser.find_element_by_xpath("//nav[@id='topTabs']/span[4]/span[1]")
+        
+        clear_button = self.browser.find_element_by_xpath('//*[@id="newsLanding"]/div[3]/ul/li[4]/div')
         clear_button.click()
         # wait for balances to show and get them
         WebDriverWait(self.browser, 40).until(
@@ -82,11 +84,10 @@ class Fetcher:
         self.balances = [check_balance, credit_balance]
 
     def nedbank_get_balances(self):
-        self.browser.find_element_by_class_name()
-        check_balance = self.browser.find_element_by_xpath('//*[@id="scroll-page"]/div[1]/div[1]/div/app-landing/div/div/div[2]/div/div/div[1]/div[1]/app-accounts/div/app-account-widget[1]/div/div[2]/div/div/div[1]/div/div/div[3]/div[2]').text
+        # self.browser.find_element_by_class_name()
+        check_balance = self.browser.find_element_by_xpath('//*[@id="scroll-page"]/div/div/div/app-landing/div[1]/div/div[2]/div/div/div/div[5]/app-accounts/div/app-account-widget[1]/div/div[2]/div[1]/div/div[1]/div/div/div[3]/div[2]').text
         check_balance = check_balance.replace('R', '')
         check_balance = check_balance.replace(' ', '')
-
         self.balances = [check_balance, '']
 
 

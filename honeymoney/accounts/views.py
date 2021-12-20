@@ -280,7 +280,7 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
     def post(self, request):
         transaction_name = request.POST['transactionName']
         if not transaction_name:
-            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+            return HttpResponseRedirect(redirect_to=reverse('accounts:transactional-detail'))
         query = (Q(name=transaction_name) | Q(item__name=transaction_name))
         changes = Transaction.objects.filter(query)
         this_day = datetime.date.today()
@@ -299,7 +299,7 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
                 continue
             c.delete()
 
-        return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+        return HttpResponseRedirect(redirect_to=reverse('accounts:transactional-detail'))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -324,8 +324,8 @@ class TransactionalDetailView(LoginRequiredMixin, TemplateView):
             account_query = account_query | (Q(account_from=ac) & ~Q(account_to__in=accounts))
             # account_from is not one of the transactional accounts
             account_query = account_query | (~Q(account_from__in=accounts) & Q(account_to=ac))
-            total_balance = total_balance + ac.balance
-            account_start_balances.append(ac.balance)
+            total_balance = total_balance + ac.true_balance
+            account_start_balances.append(ac.true_balance)
         account_start_balances.append(total_balance)
         if len(context['accounts']) == 0:
             changes = Transaction.objects.none()

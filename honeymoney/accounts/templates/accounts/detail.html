@@ -18,7 +18,7 @@ table{ margin-bottom: 10px; }
     </tr>
     {% for a in accounts %}
         <tr>
-            <td>{{ a.name }}</td>
+            <td><a href="{% url 'accounts:account-update' a.id %}">{{ a.name }}</a></td>
             <td>{{ a.balance }}</td>
             <td>{{ a.last_updated }}</td>
             <td>{{ a.true_balance }}</td>
