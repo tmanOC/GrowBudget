@@ -34,7 +34,7 @@ class TransactionUpdateSingle(TemplateView, LoginRequiredMixin):
     def post(self, request):
         transaction_name = request.POST['transactionName']
         if not transaction_name:
-            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+            return HttpResponseRedirect(redirect_to=reverse('accounts:transactional-detail'))
         query = (Q(name=transaction_name) | Q(item__name=transaction_name))
         changes = list(Transaction.objects.filter(query))
         this_day = datetime.date.today()
@@ -47,7 +47,7 @@ class TransactionUpdateSingle(TemplateView, LoginRequiredMixin):
         if month_index == 0:
             for c in changes:
                 move_change_by_month(c ,this_day)
-            return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+            return HttpResponseRedirect(redirect_to=reverse('accounts:transactional-detail'))
 
         month_to_change = months_days_from_day(this_day, month_index + 1)[month_index]
         new_transactions = []
@@ -85,4 +85,4 @@ class TransactionUpdateSingle(TemplateView, LoginRequiredMixin):
             # middle of non-recurring
         for transaction in new_transactions:
             transaction.save()
-        return HttpResponseRedirect(redirect_to=reverse('accounts:full-detail'))
+        return HttpResponseRedirect(redirect_to=reverse('accounts:transactional-detail'))
